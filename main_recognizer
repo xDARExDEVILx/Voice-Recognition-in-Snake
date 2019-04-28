@@ -1,0 +1,277 @@
+import pygame
+import random
+import time
+import copy
+import numpy as np
+import librosa
+from threading import Thread
+import sounddevice as sd
+from keras.models import model_from_json
+
+fs = 16000
+duration = 1
+dvc = []  # dynamic voice collector
+on = True
+labels = ["down", "go", "left", "right", "up", "zero"]
+
+# model loading
+json_file = open('model.json', 'r')
+loaded_model_json = json_file.read()
+json_file.close()
+loaded_model = model_from_json(loaded_model_json)
+loaded_model.load_weights("model.h5")
+print("Model has been loaded from disk...")
+
+
+def rec(cond):
+    while cond:
+        arr = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+        time.sleep(1.1)
+        dvc.append(arr)
+
+
+def translator(max_pad_width=32):
+    if dvc:  # if dvc is not empty
+        wave = dvc.pop()
+        wave = wave.reshape(wave.shape[0])
+        tmp_mfcc = librosa.feature.mfcc(wave, sr=16000)
+        padding_width = max_pad_width - tmp_mfcc.shape[1]
+        tmp_mfcc = np.pad(tmp_mfcc, pad_width=((0, 0), (0, padding_width)), mode='constant')
+        mfcc_ready = tmp_mfcc.reshape(1, tmp_mfcc.shape[0], tmp_mfcc.shape[1], 1)
+        answers = loaded_model.predict(mfcc_ready)
+        print(answers)
+        mval = np.amax(answers)
+        print(mval)
+        indexer = int(np.where(answers == mval)[1][0])
+        print(labels[indexer])
+        if mval > 0.95:
+            return labels[indexer]
+        else:
+            return None
+
+    else:
+        return None
+
+
+pygame.init()
+
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+MID = (200, 200, 200)
+YELLOW = (255, 255, 0)
+FRUITY = (22, 250, 73)
+HEADDY = (233, 156, 0)
+
+screen_width = 600
+screen_height = 600
+
+
+class Board:
+    arr = []
+    obst = []
+    fruit_pos = []
+    score = 0
+
+    def __init__(self):
+
+        for x in range(0, 10):
+            self.arr.append([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    def display(self, surface):
+
+        for y in range(0, 10):
+            for x in range(0, 10):
+                pygame.draw.rect(surface, MID, (50 + x * 50, 50 + y * 50, 45, 45))
+
+        pygame.draw.rect(surface, FRUITY,
+                         (50 + 50 * self.fruit_pos[0], 50 + 50 * self.fruit_pos[1], 45, 45))  # fruit
+
+        pygame.display.set_caption("Snake - points: " + str(self.score))  # score in upper bar
+
+    def place_fruit(self, sneak):
+
+        forbidden_places = sneak.parts
+
+        while True:
+            x = random.randint(0, 9)
+            y = random.randint(0, 9)
+
+            if [x, y] not in forbidden_places:
+                self.fruit_pos = [x, y]
+                break
+
+
+class Snake:
+
+    def __init__(self):
+        self.restart()
+        self.counter_base = 45
+        self.point_mult = 3
+
+    def restart(self):
+        self.parts = [[4, 8]]
+        self.dir = 'up'
+        self.speed = 1
+        self.belly_full = False
+        self.counter = 0
+
+    def display(self, surface):
+        for part in self.parts:
+            pygame.draw.rect(surface, YELLOW, (50 + 50 * part[0], 50 + 50 * part[1], 45, 45))
+
+        pygame.draw.rect(surface, HEADDY, (50 + 50 * self.parts[0][0], 50 + 50 * self.parts[0][1], 45, 45))
+
+    def move_up(self):
+
+        if self.belly_full == True:
+            self.parts.insert(0, [self.parts[0][0], self.parts[0][1] - 1])
+            self.belly_full = False
+        else:
+            self.parts.insert(0, [self.parts[0][0], self.parts[0][1] - 1])
+            self.parts.pop()
+
+    def move_down(self):
+
+        if self.belly_full == True:
+            self.parts.insert(0, [self.parts[0][0], self.parts[0][1] + 1])
+            self.belly_full = False
+        else:
+            self.parts.insert(0, [self.parts[0][0], self.parts[0][1] + 1])
+            self.parts.pop()
+
+    def move_left(self):
+
+        if self.belly_full == True:
+            self.parts.insert(0, [self.parts[0][0] - 1, self.parts[0][1]])
+            self.belly_full = False
+        else:
+            self.parts.insert(0, [self.parts[0][0] - 1, self.parts[0][1]])
+            self.parts.pop()
+
+    def move_right(self):
+
+        if self.belly_full == True:
+            self.parts.insert(0, [self.parts[0][0] + 1, self.parts[0][1]])
+            self.belly_full = False
+        else:
+            self.parts.insert(0, [self.parts[0][0] + 1, self.parts[0][1]])
+            self.parts.pop()
+
+    def faster(self):
+        if self.counter_base > 20:
+            self.counter_base = self.counter_base - 10
+
+    def slower(self):
+        self.counter_base = self.counter_base + 10
+
+    def move_activator(self):
+        if self.counter == self.counter_base:
+            self.counter = 0
+
+            if self.dir == 'up':
+                self.move_up()
+            elif self.dir == 'down':
+                self.move_down()
+            elif self.dir == 'left':
+                self.move_left()
+            elif self.dir == 'right':
+                self.move_right()
+        else:
+            self.counter += 1
+
+    def input(self, key):
+
+        if key == "up":
+            if self.dir != 'up' and self.dir != 'down':
+                self.dir = 'up'
+        if key == "down":
+            if self.dir != 'up' and self.dir != 'down':
+                self.dir = 'down'
+        if key == "left":
+            if self.dir != 'left' and self.dir != 'right':
+                self.dir = 'left'
+        if key == "right":
+            if self.dir != 'left' and self.dir != 'right':
+                self.dir = 'right'
+        if key == "go":
+            self.faster()
+            self.point_mult += 1
+        if key == "zero":
+            self.slower()
+            self.point_mult -= 1
+
+
+class Judge:
+
+    def restart(self, sneak, board):
+        sneak.restart()
+        board.place_fruit(sneak)
+        board.score = 0
+        time.sleep(1)
+
+    def collision_fruit(self, sneak, board):
+        head = sneak.parts[0]
+        if head == board.fruit_pos:
+            sneak.belly_full = True
+            board.place_fruit(sneak)
+            board.score += 1 * sneak.point_mult
+
+    def collision_obstacle(self, sneak, board):
+        head = sneak.parts[0]
+
+        if head[0] > 9 or head[0] < 0 or head[1] > 9 or head[1] < 0:
+            self.restart(sneak, board)
+
+    def collision_self(self, sneak, board):
+
+        head = sneak.parts[0]
+        tail = copy.copy(sneak.parts)
+        tail.pop(0)
+
+        if head in tail:
+            self.restart(sneak, board)
+
+
+b1 = Board()
+s1 = Snake()
+j1 = Judge()
+
+b1.place_fruit(s1)
+
+size = [screen_width, screen_height]
+screen = pygame.display.set_mode(size)
+pygame.display.set_caption("Snake - points: 0")
+
+clock = pygame.time.Clock()
+
+t1 = Thread(target=rec, args=(on,))
+t1.start()
+
+
+while on:
+
+    screen.fill(BLACK)
+    b1.display(screen)
+    s1.display(screen)
+
+    pygame.display.flip()
+    clock.tick(60)
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            on = False
+
+    # new type of input
+    word = translator()
+    s1.input(word)
+
+    s1.move_activator()
+    j1.collision_obstacle(s1, b1)
+    j1.collision_fruit(s1, b1)
+    j1.collision_self(s1, b1)
+
+pygame.quit()
+
+on = False
+
+t1.join()

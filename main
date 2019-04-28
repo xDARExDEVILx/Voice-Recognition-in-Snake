@@ -1,0 +1,101 @@
+import numpy as np
+import os
+import librosa
+from sklearn.model_selection import train_test_split
+
+PATH = r"C:\vrAudio"
+
+
+# function takes path to file as argument, imports wav file, converts it to mfcc,
+# changes it's width to one standard size and returns
+
+
+def wav_to_mfcc(path, max_pad_width=32):
+    wave, sr = librosa.load(path, sr=None, mono=True)
+    mfcc = librosa.feature.mfcc(wave, sr=16000)
+    padding_width = max_pad_width - mfcc.shape[1]
+    return np.pad(mfcc, pad_width=((0, 0), (padding_width, 0)), mode='constant')
+
+
+labels = os.listdir(PATH)
+
+
+counter = 0
+
+for label in labels:
+    mfcc_array = []
+
+    for i in os.listdir(PATH + "\\" + label):
+        address = PATH + "\\" + label + "\\" + i
+        mfcc_array.append(wav_to_mfcc(address))
+
+        counter += 1
+        print("file " + str(counter) + " added")
+
+    np.save(label + '.npy', mfcc_array)
+
+
+def data_division():
+
+    x = np.load(labels[0] + '.npy')
+    y = np.zeros(x.shape[0])
+
+    i = 1
+
+    for label in labels[1:]:
+        file_npy = np.load(label + '.npy')
+        x = np.vstack((x, file_npy))
+        y = np.append(y, np.full(file_npy.shape[0], fill_value=i))
+        i += 1
+
+    return train_test_split(x, y, test_size=0.6, random_state=100, shuffle=True)
+
+
+x_train, x_test, y_train, y_test = data_division()
+
+
+import keras
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
+from keras.utils import to_categorical
+
+
+x_train = x_train.reshape(x_train.shape[0], 20, 32, 1)
+x_test = x_test.reshape(x_test.shape[0], 20, 32, 1)
+
+y_train_hot = to_categorical(y_train)
+y_test_hot = to_categorical(y_test)
+
+channel = 1
+epochs = 50
+batch_size = 100
+verbose = 1
+num_classes = 6
+
+def get_model():
+    model = Sequential()
+    model.add(Conv2D(32, kernel_size=(2, 2), activation='relu', input_shape=(20, 32, 1)))
+    model.add(Conv2D(48, kernel_size=(2, 2), activation='relu'))
+    model.add(Conv2D(120, kernel_size=(2, 2), activation='relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+    model.add(Flatten())
+    model.add(Dense(128, activation='relu'))
+    model.add(Dropout(0.25))
+    model.add(Dense(64, activation='relu'))
+    model.add(Dropout(0.4))
+    model.add(Dense(num_classes, activation='softmax'))
+    model.compile(loss=keras.losses.categorical_crossentropy,
+                  optimizer=keras.optimizers.Adadelta(),
+                  metrics=['accuracy'])
+    return model
+
+model = get_model()
+model.fit(x_train, y_train_hot, batch_size=batch_size, epochs=epochs, verbose=verbose, validation_data=(x_test, y_test_hot))
+
+model_json = model.to_json()
+with open("model.json", "w") as json_file:
+    json_file.write(model_json)
+# serialize weights to HDF5
+model.save_weights("model.h5")
+print("Saved model to disk")

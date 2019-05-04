@@ -1,3 +1,6 @@
+SNAKE
+-----
+
 This is alpha version of Voice-Recognition-in-Snake.
 This work is based on article by Manash Kumar Mandal, 
 link: https://blog.manash.me/building-a-dead-simple-word-recognition-engine-using-convnet-in-keras-25e72c19c12b.

@@ -1,4 +1,4 @@
-SNAKE
+Voice Controlled Snake - Summary
 -----
 
 This is alpha version of Voice-Recognition-in-Snake.
@@ -23,7 +23,7 @@ Future program features/updates.
 - mfcc padding has to be changed to pad zeros at the beginning, not the end (already done in code, but model was learnt with 2nd option)
 - possibly one more thread in background for increasing prediction power
 - visual representation of recording period (as it lasts 1s)
-- fixed translation for case when there are two equal predictions (now returns error)
+- fixed translation for case when there are two equal predictions (now returns error) ( update - 05.05.2019 - to use try except there)
 - longer training period (>50 epochs) as there will be less learning data
 
 
